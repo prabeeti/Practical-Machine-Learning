@@ -1,0 +1,160 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Prabeeti Bulani"
+date: "10/11/2019"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# 1. Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+# 2. Objective
+In this project, my objective is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and predict the manner in which these particiapnts have prerformed these exercises. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+#Data Source & References:- #http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+#(refer-Weight Lifting Exercise Data)
+#Training data - https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+#Test Set-https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+ 
+ 
+ # 3. Data Loading and Exploratory Analysis
+```{r}
+# Following library are used
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(janitor)
+set.seed(123)
+# Data Extraction
+Training_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+Testing_url  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Training_data<-"pml-traininig.csv"
+Testing_data<-"pml-testing.csv"
+
+if(!file.exists(Training_data))
+{
+    download.file(Training_url,destfile = Training_data,method="curl")
+}
+training <- read.csv(Training_data, header = TRUE, sep = ",", na.strings=c("NA","#DIV/0!",""))
+dim(training)
+if(!file.exists(Testing_data))
+{
+    download.file(Testing_url,destfile = Testing_data,method="curl")
+}
+testing  <- read.csv(Testing_data, header = TRUE, sep = ",", na.strings=c("NA","#DIV/0!",""))
+dim(testing)
+# create a partition using caret with the training dataset on 60,40 ratio
+inTraining  <- createDataPartition(training$classe, p=0.6, list=FALSE)
+
+Training_dataset <- training[inTraining, ]
+
+Test_dataset  <- training[-inTraining, ]
+# Exploring the data in training and test data
+dim(Training_dataset)
+dim(Test_dataset)
+# Training and testing dataset both have 160 variables, with records count divided as 60:40 ratio
+str(Training_dataset)
+
+# Data cleansing - cleaning the data for NA, The Near Zero variance (NZV) and ID variables 
+Training_nearZeroVar <- nearZeroVar(Training_dataset)
+Training_dataset <- Training_dataset[, -Training_nearZeroVar]
+Test_nearZeroVar <- nearZeroVar(Test_dataset)
+Test_dataset  <- Test_dataset[, -Test_nearZeroVar]
+label <- apply(Training_dataset, 2, function(x) mean(is.na(x))) > 0.95
+Training_dataset <- Training_dataset[, -which(label, label == FALSE)]
+label_test <- apply(Test_dataset, 2, function(x) mean(is.na(x))) > 0.95
+Test_dataset <- Test_dataset[, -which(label_test, label_test == FALSE)]
+
+
+Training_dataset <- Training_dataset[ , -(1:5)]
+Test_dataset <- Test_dataset[ , -(1:5)]
+
+dim(Training_dataset)
+dim(Test_dataset)
+
+# Training and testing dataset  have 54 and 54  variables respectively after cleansing.
+```
+
+
+# 4.Predictive Modelling Processes
+
+# 4.1 Decision Tree Model
+```{r}
+
+# DEcision tree build
+set.seed(123)
+model_decisionTree <- rpart(classe ~ ., Training_dataset, method="class")
+fancyRpartPlot(model_decisionTree)
+
+# Prediction with decision tree model
+predict_DT<- predict(model_decisionTree, Test_dataset, type = "class")
+confusionMatrix_DT <-confusionMatrix(predict_DT, Test_dataset$classe)
+confusionMatrix_DT
+# plot confusion matrix results
+plot(confusionMatrix_DT$table, col = confusionMatrix_DT$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(confusionMatrix_DT$overall['Accuracy'], 4)))
+```
+
+# 4.2 Randon Forest Model
+
+```{r}
+
+# Random Forest build
+set.seed(123)
+train_ctrl <-  trainControl(method = "cv", classProbs=TRUE,savePredictions=TRUE,allowParallel=TRUE, number = 10)
+model_randomForest <- randomForest(classe ~ ., data = Training_dataset, method = "rf", importance = T, trControl = train_ctrl,na.action = na.exclude)
+
+
+# Prediction with random forest model
+predict_RF<- predict(model_randomForest, Test_dataset, type = "class")
+confusionMatrix_RF <-confusionMatrix(predict_RF, Test_dataset$classe)
+confusionMatrix_RF
+# plot confusion matrix results for random forest
+plot(model_randomForest)
+
+```
+
+# 4.3 Generalised Boosting Model
+
+```{r}
+
+# Generalised Boosting Model  build
+set.seed(123)
+gbm_control <- trainControl(method = "repeatedcv", number = 5, repeats =1,verboseIter = FALSE)
+model_Boosting <- train(classe ~ ., method = "gbm",data= Training_dataset,
+                    verbose = FALSE,
+                    trControl = gbm_control)
+
+model_Boosting
+
+plot(model_Boosting)
+# Prediction with Generalised Boosting Model model
+predict_GBM<- predict(model_Boosting, Test_dataset)
+confusionMatrix_GBM <-confusionMatrix(predict_GBM, Test_dataset$classe)
+confusionMatrix_GBM
+
+```
+# Conclusion
+#Accuracy obtained from 3 models are as below:-
+#1. Decision Tree Model -0.8278
+#2. Random Forest Model - 0.9963
+#3. Boosting Model - 0.9862
+
+Out of these, accuracy is best for random forest model , so Random Forest model is applied to predict the 20 quiz results
+
+```{r}
+predict_RF<- predict(model_randomForest, testing)
+predict_RF
+```
+I have used assumption in processing data is to limit dataset for attributes that are non-zero in the Training and tEsting dataset. I haved faced lots of error about missing attributes in Testing data but available in Training dataset but this got tackeled by using this assumption.
+
+
+
